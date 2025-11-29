@@ -1,39 +1,24 @@
 name: 每日板块资金流向抓取
 
-# 触发方式
 on:
   schedule:
-    - cron: '30 16 * * 1-5'  # 每天 16:30 运行（周一到周五）
-  workflow_dispatch:  # 手动触发
+    - cron: '30 16 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. 拉取仓库代码
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      # 2. 设置 Python 环境
+      - uses: actions/checkout@v3
+        with:
+          persist-credentials: true   # 保证 push 有权限
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
-      # 3. 安装依赖
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install requests pandas matplotlib openpyxl
-
-      # 4. 运行抓取脚本
-      - name: Run board flow script
+      - name: Run script and push
         run: python get_board_flow.py
-
-      # 5. 上传结果文件到 GitHub Artifact
-      - name: Upload CSV and charts
-        uses: actions/upload-artifact@v4  # 最新版本
-        with:
-          name: board-flow-data
-          path: data/*

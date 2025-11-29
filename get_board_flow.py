@@ -11,7 +11,7 @@ os.makedirs(data_folder, exist_ok=True)
 top_n = 10
 today_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
-# ---------- 抓取当天资金流向 ----------
+# ---------- 获取当天资金流向 ----------
 url = "https://push2.eastmoney.com/api/qt/clist/get"
 all_boards = []
 page = 1
@@ -65,25 +65,25 @@ sum_df = sum_df.sort_values(by='主力净流入', ascending=False).head(top_n)
 sum_csv_file = f"{data_folder}/三天累计主力净流入_{today_str}.csv"
 sum_df.to_csv(sum_csv_file, index=False, encoding="utf-8-sig")
 
-# ---------- 自动 push 到 data 分支 ----------
+# ---------- 自动 push 到 data 分支（使用 PAT） ----------
 try:
-    pat = os.environ['GH_PAT']        # 从环境变量读取 PAT
-    username = "loulouD88"   # 替换成你的 GitHub 用户名
-    repo_name = "trader_repo"       # 替换成仓库名
+    pat = os.environ['GH_PAT']        # 从 workflow 传入 PAT
+    username = "loulouD88"           # 你的 GitHub 用户名
+    repo_name = "trader_repo"        # 仓库名
     repo_url = f"https://x-access-token:{pat}@github.com/{username}/{repo_name}.git"
 
     subprocess.run(["git", "config", "--global", "user.name", "github-actions"], check=True)
     subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
 
-    # 拉取远程分支
+    # 获取远程分支并切换到 data
     subprocess.run(["git", "fetch"], check=True)
     branches = subprocess.run(["git", "branch", "-r"], capture_output=True, text=True, check=True).stdout
     if "origin/data" in branches:
-        subprocess.run(["git", "checkout", "data"], check=True)
+        subprocess.run(["git", "checkout", "-B", "data", "origin/data"], check=True)
     else:
         subprocess.run(["git", "checkout", "-b", "data"], check=True)
 
-    # 添加当天 CSV 和三天累计 CSV
+    # 只 add 当天文件
     subprocess.run(["git", "add", csv_file, sum_csv_file], check=True)
     subprocess.run(["git", "commit", "-m", f"更新 {today_str} 数据和图表", "--allow-empty"], check=True)
     subprocess.run(["git", "push", repo_url, "data"], check=True)

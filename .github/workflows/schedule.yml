@@ -1,4 +1,4 @@
-name: 每日板块资金流向抓取并Push123
+name: 每日板块资金流向抓取并Push
 
 on:
   schedule:

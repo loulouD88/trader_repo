@@ -1,8 +1,8 @@
-name: 每日板块资金流向抓取
+name: 每日板块资金流向抓取并Push
 
 on:
   schedule:
-    - cron: '30 16 * * 1-5'
+    - cron: '30 16 * * 1-5'  # 每个交易日16:30触发
   workflow_dispatch:
 
 jobs:
@@ -11,15 +11,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-        with:
-          persist-credentials: true
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install requests pandas matplotlib openpyxl
+          pip install requests pandas openpyxl matplotlib
+
       - name: Run script and push
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: python get_board_flow.py

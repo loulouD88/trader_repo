@@ -4,12 +4,17 @@ import datetime
 import glob
 import os
 import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontProperties
+import subprocess
 
 # ---------- 配置 ----------
 data_folder = "data"
-os.makedirs(data_folder, exist_ok=True)  # 自动创建文件夹
+os.makedirs(data_folder, exist_ok=True)
 top_n = 10  # 三天累计显示前 N 板块
 today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+
+# 设置中文字体（微软雅黑）
+font = FontProperties(fname="/usr/share/fonts/truetype/wqy/wqy-microhei.ttc")  # GitHub Actions linux可用中文字体
 
 # ---------- 获取当天资金流向 ----------
 url = "https://push2.eastmoney.com/api/qt/clist/get"
@@ -87,10 +92,6 @@ for f in all_files:
     except Exception as e:
         print(f"读取文件 {f} 失败: {e}")
 
-if not dfs:
-    print("没有有效数据，脚本结束")
-    exit(1)
-
 all_data = pd.concat(dfs)
 
 sum_df = all_data.groupby(['板块代码','板块名称'])['主力净流入'].sum().reset_index()
@@ -105,10 +106,10 @@ print(f"三天累计前{top_n}板块已保存: {sum_csv_file}")
 try:
     plt.figure(figsize=(12,6))
     plt.bar(sum_df['板块名称'], sum_df['主力净流入'], color='skyblue')
-    plt.title(f"最近三天累计主力净流入前{top_n}板块 ({today_str})", fontsize=16)
-    plt.xlabel("板块名称")
-    plt.ylabel("累计主力净流入（万元）")
-    plt.xticks(rotation=45, ha='right')
+    plt.title(f"最近三天累计主力净流入前{top_n}板块 ({today_str})", fontsize=16, fontproperties=font)
+    plt.xlabel("板块名称", fontproperties=font)
+    plt.ylabel("累计主力净流入（万元）", fontproperties=font)
+    plt.xticks(rotation=45, ha='right', fontproperties=font)
     plt.tight_layout()
     chart_file = os.path.join(data_folder, f"三天累计主力净流入图_{today_str}.png")
     plt.savefig(chart_file)
@@ -116,3 +117,14 @@ try:
     print(f"三天累计柱状图已保存: {chart_file}")
 except Exception as e:
     print(f"生成图表失败: {e}")
+
+# ---------- 自动 push 回仓库 ----------
+try:
+    subprocess.run(["git", "config", "--global", "user.name", "github-actions"], check=True)
+    subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
+    subprocess.run(["git", "add", data_folder], check=True)
+    subprocess.run(["git", "commit", "-m", f"更新 {today_str} 数据和图表"], check=True)
+    subprocess.run(["git", "push"], check=True)
+    print("已自动 push CSV 和图表回仓库")
+except Exception as e:
+    print(f"自动 push 失败: {e}")

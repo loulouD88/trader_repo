@@ -13,8 +13,9 @@ os.makedirs(data_folder, exist_ok=True)
 top_n = 10  # 三天累计显示前 N 板块
 today_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
-# 设置中文字体（微软雅黑）
-font = FontProperties(fname="/usr/share/fonts/truetype/wqy/wqy-microhei.ttc")  # GitHub Actions linux可用中文字体
+# 设置中文字体（GitHub Actions 上 Linux 可用的中文字体）
+font_path = "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
+font = FontProperties(fname=font_path)
 
 # ---------- 获取当天资金流向 ----------
 url = "https://push2.eastmoney.com/api/qt/clist/get"
@@ -123,7 +124,8 @@ try:
     subprocess.run(["git", "config", "--global", "user.name", "github-actions"], check=True)
     subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
     subprocess.run(["git", "add", data_folder], check=True)
-    subprocess.run(["git", "commit", "-m", f"更新 {today_str} 数据和图表"], check=True)
+    # 保证每天都有 commit，即使文件没有变化
+    subprocess.run(["git", "commit", "-m", f"更新 {today_str} 数据和图表", "--allow-empty"], check=True)
     subprocess.run(["git", "push"], check=True)
     print("已自动 push CSV 和图表回仓库")
 except Exception as e:

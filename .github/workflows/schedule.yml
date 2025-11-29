@@ -1,4 +1,4 @@
-name: 每日板块资金流向抓取
+name: 三日板块资金流向抓取
 
 on:
   schedule:
@@ -9,9 +9,10 @@ jobs:
   run-script:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
         with:
-          persist-credentials: true  # 确保 push 有权限
+          persist-credentials: true   # 确保 push 有权限
       - name: Setup Python
         uses: actions/setup-python@v4
         with:

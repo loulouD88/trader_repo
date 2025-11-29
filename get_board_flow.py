@@ -1,8 +1,8 @@
 import requests
 import pandas as pd
 import datetime
+import glob
 import os
-import matplotlib.pyplot as plt
 import subprocess
 
 # ---------- 配置 ----------
@@ -11,11 +11,7 @@ os.makedirs(data_folder, exist_ok=True)
 top_n = 10
 today_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
-# ---------- 中文字体 ----------
-plt.rcParams['font.sans-serif'] = ['SimHei']
-plt.rcParams['axes.unicode_minus'] = False
-
-# ---------- 获取当天资金流向 ----------
+# ---------- 抓取当天资金流向 ----------
 url = "https://push2.eastmoney.com/api/qt/clist/get"
 all_boards = []
 page = 1
@@ -33,19 +29,11 @@ while True:
         "fs": "m:90 t:2",
         "fields": "f12,f14,f62,f66,f69,f72,f75"
     }
-
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data_json = response.json()
-    except Exception as e:
-        print(f"请求失败: {e}")
-        exit(1)
-
+    response = requests.get(url, params=params)
+    data_json = response.json()
     boards = data_json.get("data", {}).get("diff", [])
     if not boards:
         break
-
     all_boards.extend(boards)
     total_count = data_json.get("data", {}).get("total", 0)
     if page * page_size >= total_count:
@@ -53,60 +41,41 @@ while True:
     page += 1
 
 if not all_boards:
-    print("当天没有获取到板块数据，脚本结束")
+    print("没有获取到数据")
     exit(1)
 
-# ---------- DataFrame ----------
+# ---------- 保存当天 CSV ----------
 df = pd.DataFrame(all_boards)
 df.rename(columns={
     "f12": "板块代码",
     "f14": "板块名称",
-    "f62": "主力净流入",
-    "f66": "超大单",
-    "f69": "大单",
-    "f72": "中单",
-    "f75": "小单"
+    "f62": "主力净流入"
 }, inplace=True)
-
-numeric_cols = ["主力净流入", "超大单", "大单", "中单", "小单"]
-df[numeric_cols] = df[numeric_cols].astype(float)
+df["主力净流入"] = df["主力净流入"].astype(float)
 df["日期"] = today_str
-
-# ---------- 保存当天 CSV ----------
-csv_file = os.path.join(data_folder, f"行业主力资金排行_{today_str}.csv")
-df.to_csv(csv_file, index=False, encoding='utf-8-sig')
-print(f"当天资金流向已保存: {csv_file}")
+csv_file = f"{data_folder}/行业主力资金排行_{today_str}.csv"
+df.to_csv(csv_file, index=False, encoding="utf-8-sig")
 
 # ---------- 三天累计 ----------
-all_files = sorted([f for f in os.listdir(data_folder) if f.startswith("行业主力资金排行_")])[-3:]
-dfs = [pd.read_csv(os.path.join(data_folder, f)) for f in all_files]
+all_files = sorted(glob.glob(f"{data_folder}/行业主力资金排行_*.csv"))[-3:]
+dfs = [pd.read_csv(f) for f in all_files]
 all_data = pd.concat(dfs)
 sum_df = all_data.groupby(['板块代码','板块名称'])['主力净流入'].sum().reset_index()
 sum_df = sum_df.sort_values(by='主力净流入', ascending=False).head(top_n)
+sum_csv_file = f"{data_folder}/三天累计主力净流入_{today_str}.csv"
+sum_df.to_csv(sum_csv_file, index=False, encoding="utf-8-sig")
 
-sum_csv_file = os.path.join(data_folder, f"三天累计主力净流入_{today_str}.csv")
-sum_df.to_csv(sum_csv_file, index=False, encoding='utf-8-sig')
-print(f"三天累计前{top_n}板块已保存: {sum_csv_file}")
-
-# ---------- 柱状图 ----------
-plt.figure(figsize=(12,6))
-plt.bar(sum_df['板块名称'], sum_df['主力净流入'], color='skyblue')
-plt.title(f"最近三天累计主力净流入前{top_n}板块 ({today_str})", fontsize=16)
-plt.xlabel("板块名称")
-plt.ylabel("累计主力净流入（万元）")
-plt.xticks(rotation=45, ha='right')
-plt.tight_layout()
-chart_file = os.path.join(data_folder, f"三天累计主力净流入图_{today_str}.png")
-plt.savefig(chart_file)
-plt.close()
-print(f"三天累计柱状图已保存: {chart_file}")
-
-# ---------- 自动 push 当天文件到 data 分支 ----------
+# ---------- 自动 push 到 data 分支 ----------
 try:
+    pat = os.environ['GH_PAT']        # 从环境变量读取 PAT
+    username = "loulouD88"   # 替换成你的 GitHub 用户名
+    repo_name = "trader_repo"       # 替换成仓库名
+    repo_url = f"https://x-access-token:{pat}@github.com/{username}/{repo_name}.git"
+
     subprocess.run(["git", "config", "--global", "user.name", "github-actions"], check=True)
     subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
 
-    # 切换到 data 分支
+    # 拉取远程分支
     subprocess.run(["git", "fetch"], check=True)
     branches = subprocess.run(["git", "branch", "-r"], capture_output=True, text=True, check=True).stdout
     if "origin/data" in branches:
@@ -114,10 +83,10 @@ try:
     else:
         subprocess.run(["git", "checkout", "-b", "data"], check=True)
 
-    # 只 add 当天生成的新文件
-    subprocess.run(["git", "add", csv_file, sum_csv_file, chart_file], check=True)
+    # 添加当天 CSV 和三天累计 CSV
+    subprocess.run(["git", "add", csv_file, sum_csv_file], check=True)
     subprocess.run(["git", "commit", "-m", f"更新 {today_str} 数据和图表", "--allow-empty"], check=True)
-    subprocess.run(["git", "push", "-u", "origin", "data"], check=True)
-    print("已自动 push 当天 CSV 和图表到 data 分支")
+    subprocess.run(["git", "push", repo_url, "data"], check=True)
+    print("已自动 push 当天 CSV 和三天累计 CSV 到 data 分支")
 except Exception as e:
     print(f"自动 push 失败: {e}")

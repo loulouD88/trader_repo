@@ -5,13 +5,14 @@ import glob
 import os
 import subprocess
 
-# ---------- 配置 ----------
+# ---------- 基础配置 ----------
 data_folder = "data"
 os.makedirs(data_folder, exist_ok=True)
-top_n = 10
-today_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
-# ---------- 获取当天资金流向 ----------
+top_n = 10
+today_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+# ---------- 获取数据 ----------
 url = "https://push2.eastmoney.com/api/qt/clist/get"
 all_boards = []
 page = 1
@@ -27,65 +28,79 @@ while True:
         "invt": "2",
         "fid": "f62",
         "fs": "m:90 t:2",
-        "fields": "f12,f14,f62,f66,f69,f72,f75"
+        "fields": "f12,f14,f62"
     }
-    response = requests.get(url, params=params)
-    data_json = response.json()
-    boards = data_json.get("data", {}).get("diff", [])
-    if not boards:
+
+    r = requests.get(url, params=params, timeout=10)
+    r.raise_for_status()
+    data = r.json().get("data", {})
+    diff = data.get("diff", [])
+
+    if not diff:
         break
-    all_boards.extend(boards)
-    total_count = data_json.get("data", {}).get("total", 0)
-    if page * page_size >= total_count:
+
+    all_boards.extend(diff)
+    total = data.get("total", 0)
+    if page * page_size >= total:
         break
     page += 1
 
 if not all_boards:
-    print("没有获取到数据")
-    exit(1)
+    raise RuntimeError("未获取到任何板块数据")
 
-# ---------- 保存当天 CSV ----------
+# ---------- 保存当天 ----------
 df = pd.DataFrame(all_boards)
 df.rename(columns={
     "f12": "板块代码",
     "f14": "板块名称",
     "f62": "主力净流入"
 }, inplace=True)
+
 df["主力净流入"] = df["主力净流入"].astype(float)
 df["日期"] = today_str
-csv_file = f"{data_folder}/行业主力资金排行_{today_str}.csv"
-df.to_csv(csv_file, index=False, encoding="utf-8-sig")
+
+csv_today = f"{data_folder}/行业主力资金排行_{today_str}.csv"
+df.to_csv(csv_today, index=False, encoding="utf-8-sig")
 
 # ---------- 三天累计 ----------
-all_files = sorted(glob.glob(f"{data_folder}/行业主力资金排行_*.csv"))[-3:]
-dfs = [pd.read_csv(f) for f in all_files]
-all_data = pd.concat(dfs)
-sum_df = all_data.groupby(['板块代码','板块名称'])['主力净流入'].sum().reset_index()
-sum_df = sum_df.sort_values(by='主力净流入', ascending=False).head(top_n)
-sum_csv_file = f"{data_folder}/三天累计主力净流入_{today_str}.csv"
-sum_df.to_csv(sum_csv_file, index=False, encoding="utf-8-sig")
+files = sorted(glob.glob(f"{data_folder}/行业主力资金排行_*.csv"))[-3:]
+dfs = [pd.read_csv(f) for f in files]
 
-# ---------- 自动 push 到 data 分支（使用 PAT） ----------
-try:
-    pat = os.environ['GH_PAT']        # workflow Secrets
-    username = "loulouD88"
-    repo_name = "trader_repo"
-    repo_url = f"https://x-access-token:{pat}@github.com/{username}/{repo_name}.git"
+sum_df = (
+    pd.concat(dfs)
+    .groupby(["板块代码", "板块名称"], as_index=False)["主力净流入"]
+    .sum()
+    .sort_values("主力净流入", ascending=False)
+    .head(top_n)
+)
 
-    # 设置 git 用户
-    subprocess.run(["git", "config", "--global", "user.name", "github-actions"], check=True)
-    subprocess.run(["git", "config", "--global", "user.email", "actions@github.com"], check=True)
+csv_3day = f"{data_folder}/三天累计主力净流入_{today_str}.csv"
+sum_df.to_csv(csv_3day, index=False, encoding="utf-8-sig")
 
-    # 切换或创建本地 data 分支
-    subprocess.run(["git", "fetch"], check=True)
-    subprocess.run(["git", "checkout", "-B", "data"], check=True)
+# ---------- Git Push（关键修复点） ----------
+pat = os.environ["GH_PAT"]
+username = "loulouD88"
+repo = "trader_repo"
+repo_url = f"https://x-access-token:{pat}@github.com/{username}/{repo}.git"
 
-    # 只 add 当天文件
-    subprocess.run(["git", "add", csv_file, sum_csv_file], check=True)
-    subprocess.run(["git", "commit", "-m", f"更新 {today_str} 数据和图表", "--allow-empty"], check=True)
+def run(cmd):
+    subprocess.run(cmd, check=True)
 
-    # 用 PAT URL push
-    subprocess.run(["git", "push", repo_url, "data"], check=True)
-    print("已成功 push 到 data 分支")
-except Exception as e:
-    print(f"自动 push 失败: {e}")
+run(["git", "config", "--global", "user.name", "github-actions"])
+run(["git", "config", "--global", "user.email", "actions@github.com"])
+
+# 拉取远程
+run(["git", "fetch", repo_url])
+
+# 切换 / 创建 data 分支
+run(["git", "checkout", "-B", "data"])
+
+# ⭐ 关键：rebase 远程 data，避免 non-fast-forward
+run(["git", "rebase", f"{repo_url}/data"])
+
+# 提交
+run(["git", "add", csv_today, csv_3day])
+run(["git", "commit", "-m", f"更新 {today_str} 行业资金数据", "--allow-empty"])
+
+# 推送
+run(["git", "push", repo_url, "data"])

@@ -1,21 +1,23 @@
-name: 每日板块资金流向抓取并Push NMD
+name: 每日板块资金流向抓取并 Push data123
 
 on:
   schedule:
-    - cron: '30 16 * * 1-5'  # 每个交易日16:30触发
+    - cron: '30 16 * * 1-5'   # UTC 时间，等于北京时间 00:30（你可再调）
   workflow_dispatch:
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          persist-credentials: false  # ⚠️ 关键！禁止用 bot token
+          fetch-depth: 0        # ⭐ 必须！否则拉不到完整分支历史
+          persist-credentials: false
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -24,7 +26,8 @@ jobs:
           pip install --upgrade pip
           pip install requests pandas openpyxl matplotlib
 
-      - name: Run script and push
+      - name: Run script
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-        run: python get_board_flow.py
+        run: |
+          python get_board_flow.py

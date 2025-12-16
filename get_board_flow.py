@@ -4,15 +4,16 @@ import datetime
 import glob
 import os
 import subprocess
+import sys
 
-# ---------- 基础配置 ----------
-data_folder = "data"
-os.makedirs(data_folder, exist_ok=True)
+# ========== 基础配置 ==========
+DATA_DIR = "data"
+TOP_N = 10
+TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 
-top_n = 10
-today_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# ---------- 获取数据 ----------
+# ========== 拉取资金流 ==========
 url = "https://push2.eastmoney.com/api/qt/clist/get"
 all_boards = []
 page = 1
@@ -20,8 +21,8 @@ page_size = 50
 
 while True:
     params = {
-        "pn": str(page),
-        "pz": str(page_size),
+        "pn": page,
+        "pz": page_size,
         "po": "1",
         "np": "1",
         "fltt": "2",
@@ -30,25 +31,22 @@ while True:
         "fs": "m:90 t:2",
         "fields": "f12,f14,f62"
     }
-
-    r = requests.get(url, params=params, timeout=10)
+    r = requests.get(url, params=params, timeout=15)
     r.raise_for_status()
-    data = r.json().get("data", {})
-    diff = data.get("diff", [])
-
+    j = r.json()
+    diff = j.get("data", {}).get("diff", [])
     if not diff:
         break
-
     all_boards.extend(diff)
-    total = data.get("total", 0)
+    total = j.get("data", {}).get("total", 0)
     if page * page_size >= total:
         break
     page += 1
 
 if not all_boards:
-    raise RuntimeError("未获取到任何板块数据")
+    print("❌ 没有获取到任何数据")
+    sys.exit(1)
 
-# ---------- 保存当天 ----------
 df = pd.DataFrame(all_boards)
 df.rename(columns={
     "f12": "板块代码",
@@ -57,31 +55,34 @@ df.rename(columns={
 }, inplace=True)
 
 df["主力净流入"] = df["主力净流入"].astype(float)
-df["日期"] = today_str
+df["日期"] = TODAY
 
-csv_today = f"{data_folder}/行业主力资金排行_{today_str}.csv"
-df.to_csv(csv_today, index=False, encoding="utf-8-sig")
+daily_csv = f"{DATA_DIR}/行业主力资金排行_{TODAY}.csv"
+df.to_csv(daily_csv, index=False, encoding="utf-8-sig")
 
-# ---------- 三天累计 ----------
-files = sorted(glob.glob(f"{data_folder}/行业主力资金排行_*.csv"))[-3:]
+# ========== 三日累计 ==========
+files = sorted(glob.glob(f"{DATA_DIR}/行业主力资金排行_*.csv"))[-3:]
 dfs = [pd.read_csv(f) for f in files]
-
 sum_df = (
     pd.concat(dfs)
     .groupby(["板块代码", "板块名称"], as_index=False)["主力净流入"]
     .sum()
     .sort_values("主力净流入", ascending=False)
-    .head(top_n)
+    .head(TOP_N)
 )
 
-csv_3day = f"{data_folder}/三天累计主力净流入_{today_str}.csv"
-sum_df.to_csv(csv_3day, index=False, encoding="utf-8-sig")
+sum_csv = f"{DATA_DIR}/三天累计主力净流入_{TODAY}.csv"
+sum_df.to_csv(sum_csv, index=False, encoding="utf-8-sig")
 
-# ---------- Git Push（关键修复点） ----------
-pat = os.environ["GH_PAT"]
-username = "loulouD88"
-repo = "trader_repo"
-repo_url = f"https://x-access-token:{pat}@github.com/{username}/{repo}.git"
+# ========== Git 自动提交 ==========
+pat = os.environ.get("GH_PAT")
+if not pat:
+    print("❌ 未找到 GH_PAT")
+    sys.exit(1)
+
+USERNAME = "loulouD88"
+REPO = "trader_repo"
+REMOTE = f"https://x-access-token:{pat}@github.com/{USERNAME}/{REPO}.git"
 
 def run(cmd):
     subprocess.run(cmd, check=True)
@@ -89,18 +90,14 @@ def run(cmd):
 run(["git", "config", "--global", "user.name", "github-actions"])
 run(["git", "config", "--global", "user.email", "actions@github.com"])
 
-# 拉取远程
-run(["git", "fetch", repo_url])
+run(["git", "fetch", "origin"])
+run(["git", "checkout", "-B", "data", "origin/data"])
 
-# 切换 / 创建 data 分支
-run(["git", "checkout", "-B", "data"])
+# ⭐ 关键：先 rebase 再提交
+run(["git", "pull", "--rebase", "origin", "data"])
 
-# ⭐ 关键：rebase 远程 data，避免 non-fast-forward
-run(["git", "rebase", f"{repo_url}/data"])
+run(["git", "add", daily_csv, sum_csv])
+run(["git", "commit", "-m", f"更新 {TODAY} 行业资金数据", "--allow-empty"])
+run(["git", "push", REMOTE, "data"])
 
-# 提交
-run(["git", "add", csv_today, csv_3day])
-run(["git", "commit", "-m", f"更新 {today_str} 行业资金数据", "--allow-empty"])
-
-# 推送
-run(["git", "push", repo_url, "data"])
+print("✅ 数据已成功推送到 data 分支")

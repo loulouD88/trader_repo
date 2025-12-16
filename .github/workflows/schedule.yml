@@ -1,8 +1,8 @@
-name: 每日板块资金流向抓取并 Push data 分支
+name: 每日板块资金流向抓取并 Push data123
 
 on:
   schedule:
-    - cron: '30 16 * * 1-5'   # UTC 时间，对应 A 股收盘后
+    - cron: '30 16 * * 1-5'   # UTC 时间，等于北京时间 00:30（你可再调）
   workflow_dispatch:
 
 jobs:
@@ -11,19 +11,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0              # ⭐ 必须完整拉取历史
-          persist-credentials: false  # 禁用默认 GITHUB_TOKEN
+          fetch-depth: 0        # ⭐ 必须！否则拉不到完整分支历史
+          persist-credentials: false
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install requests pandas openpyxl matplotlib
 
       - name: Run script
